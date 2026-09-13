@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Scraper output
+portfolio-images/
+*.part
+manifest.csv
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

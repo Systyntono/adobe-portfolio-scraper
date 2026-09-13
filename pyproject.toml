@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adobe-portfolio-scraper"
+version = "1.0.0"
+description = "Download full-resolution project images from an Adobe Portfolio website."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Tyson Jiang" }]
+requires-python = ">=3.10"
+dependencies = [
+    "requests>=2.28",
+    "beautifulsoup4>=4.9",
+]
+keywords = ["adobe portfolio", "scraper", "images", "download", "backup", "portfolio"]
+classifiers = [
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet :: WWW/HTTP",
+    "Topic :: Multimedia :: Graphics",
+]
+
+[project.urls]
+Homepage = "https://github.com/Systyntono/adobe-portfolio-scraper"
+Issues = "https://github.com/Systyntono/adobe-portfolio-scraper/issues"
+
+[project.scripts]
+adobe-portfolio-scraper = "adobe_portfolio_scraper:main"
+
+[tool.setuptools]
+py-modules = ["adobe_portfolio_scraper"]
