@@ -1,6 +1,6 @@
 # Adobe Portfolio Scraper
 
-Download every project image from an Adobe Portfolio website at full resolution, into one folder, with one command.
+Download every project image from an Adobe Portfolio website at full resolution, sorted into a folder per project, with one command.
 
 > [!IMPORTANT]
 > Only use this tool on portfolios **you own** or have **explicit permission** to download from. Read the [Terms of Use](TERMS_OF_USE.md) before using it. This project is not affiliated with, endorsed by, or sponsored by Adobe Inc.
@@ -10,10 +10,11 @@ Good for backing up your own portfolio, moving your work to another website, or 
 ## Features
 
 - **Finds every project for you.** Give it the home page. It follows the project covers, the navigation menu, and the site's sitemap.
+- **Sorts images by project**, into its own subfolder named after the project: `Lamp Study/`, `Chair/`, …
 - **Saves the original upload.** Where the page links the original file, that's what gets saved. A 4800 × 2700 photo is saved at 4800 × 2700, not as the smaller copy shown on the page.
 - **Handles every image layout:** single images, side-by-side rows, and grid galleries.
-- **No duplicates.** An image that appears on more than one page (for example, a "PDF portfolio" page that reuses project photos) is downloaded once and named after the project it came from.
-- **Readable filenames**, numbered in page order: `lamp-study-01.jpg`, `lamp-study-02.jpg`, …
+- **No duplicates.** An image that appears on more than one page (for example, a "PDF portfolio" page that reuses project photos) is downloaded once and kept with the project it came from.
+- **Readable filenames**, numbered in page order: `01.jpg`, `02.jpg`, …
 - **Safe to re-run.** Files already in the folder are skipped. Interrupted downloads never leave broken images behind.
 - **Polite and reliable:** a delay between page requests, retries with backoff, and parallel image downloads.
 
@@ -64,8 +65,8 @@ Crawling https://yourname.myportfolio.com/
 Found 70 images on 3 pages.
 Saving to C:\Users\you\Pictures\My Portfolio
 
-  [ 1/70] lamp-study-01.jpg  2.3 MB
-  [ 2/70] lamp-study-02.jpg  1.8 MB
+  [ 1/70] Lamp Study/01.jpg  2.3 MB
+  [ 2/70] Lamp Study/02.jpg  1.8 MB
   ...
 
 Done in 41.3s: 70 downloaded (148.2 MB), 0 already present, 0 failed.
@@ -77,6 +78,7 @@ Done in 41.3s: 70 downloaded (148.2 MB), 0 already present, 0 failed.
 | --- | --- | --- |
 | `url` | *(required)* | Home page of the portfolio. |
 | `-o`, `--output DIR` | `portfolio-images` | Folder to save images into. Created if it doesn't exist. |
+| `--flat` | off | Save all images directly in the output folder instead of a subfolder per project. |
 | `--dry-run` | off | List what would be downloaded without saving anything. |
 | `--include-covers` | off | Also save the cropped cover thumbnails shown on gallery pages. |
 | `--overwrite` | off | Download again even if a file with the same name already exists. |
@@ -106,16 +108,22 @@ Adobe Portfolio signs every image URL with an `?h=` token. The scraper always us
 
 ## Output
 
-All images go into a single folder. Each name is built from the project's page title plus a number in page order:
+Each project gets its own subfolder, named after the project's page title, with its images numbered in page order:
 
 ```text
-lamp-study-01.jpg
-lamp-study-02.jpg
-chair-01.png
-pdf-portfolio-01.jpg
+portfolio-images/
+├── Lamp Study/
+│   ├── 01.jpg
+│   └── 02.jpg
+├── Chair/
+│   └── 01.png
+└── PDF Portfolio/
+    └── 01.jpg
 ```
 
-When two projects have the same title, the second gets a suffix (`lamp-study-2-01.jpg`). With `--manifest`, a `manifest.csv` in the same folder records the file name, download status, page title, page URL, image URL, and asset ID for every image.
+When two projects have the same title, the second folder gets a suffix (`Lamp Study (2)/`). Pass `--flat` to save everything directly in the output folder instead, with the project name folded into each filename (`lamp-study-01.jpg`, `lamp-study-2-01.jpg`, …).
+
+With `--manifest`, a `manifest.csv` in the output folder records each file's path, download status, page title, page URL, image URL, and asset ID.
 
 ## Troubleshooting
 

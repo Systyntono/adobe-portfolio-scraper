@@ -131,18 +131,41 @@ class HelperTest(unittest.TestCase):
         self.assertEqual(aps.page_title("Jane Doe - Lamp - Final", "Jane Doe"), "Lamp - Final")
         self.assertEqual(aps.page_title("Jane Doe", "Jane Doe"), "")
 
+    def test_folder_name_keeps_wording_but_strips_invalid_characters(self):
+        self.assertEqual(aps.folder_name("iSoap 1"), "iSoap 1")
+        self.assertEqual(aps.folder_name('Lamp: "Study" / Chair?'), "Lamp Study Chair")
+        self.assertEqual(aps.folder_name("Trailing dot. "), "Trailing dot")
+        self.assertEqual(aps.folder_name("***"), "untitled")
+
+    def test_titleize_slug(self):
+        self.assertEqual(aps.titleize_slug("goh-fukugo"), "Goh Fukugo")
+        self.assertEqual(aps.titleize_slug("l1"), "L1")
+
 
 class PlanDownloadsTest(unittest.TestCase):
-    def test_names_are_readable_numbered_and_unique(self):
+    def _pages(self):
         def img(n, kind="image", hint=None):
             return aps.ImageRef(url=f"{CDN}/{uid(n)}.jpg?h=x", asset_id=uid(n), ext="jpg", kind=kind, name_hint=hint)
 
-        pages = [
+        return [
             aps.Page(SITE + "/lamp", "Lamp Study", [img(1), img(2)]),
             aps.Page(SITE + "/lamp-2", "Lamp Study", [img(3)]),
-            aps.Page(SITE + "/", "home", [img(4, "cover", "lamp")]),
-        ]
-        names = [d.path.name for d in aps.plan_downloads(pages, Path("out"))]
+            aps.Page(SITE + "/iso", "iSoap 1", [img(4, "cover", "lamp")]),
+        ], img
+
+    def test_grouped_by_default_into_a_folder_per_page(self):
+        pages, _ = self._pages()
+        paths = [str(d.path.relative_to(Path("out"))) for d in aps.plan_downloads(pages, Path("out"))]
+        self.assertEqual(paths, [
+            str(Path("Lamp Study") / "01.jpg"),
+            str(Path("Lamp Study") / "02.jpg"),
+            str(Path("Lamp Study (2)") / "01.jpg"),
+            str(Path("iSoap 1") / "cover.jpg"),
+        ])
+
+    def test_flat_mode_uses_prefixed_names_in_one_folder(self):
+        pages, _ = self._pages()
+        names = [d.path.name for d in aps.plan_downloads(pages, Path("out"), flat=True)]
         self.assertEqual(names, ["lamp-study-01.jpg", "lamp-study-02.jpg", "lamp-study-2-01.jpg", "lamp-cover.jpg"])
 
 

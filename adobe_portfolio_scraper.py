@@ -3,7 +3,8 @@
 
 The scraper starts at a site's home page, visits every page it can reach
 (project covers first, then navigation links, then the sitemap), and saves the
-largest available copy of each project image into a single folder.
+largest available copy of each project image into its own per-project
+subfolder (pass --flat to save everything into one folder instead).
 
 Usage:
     adobe-portfolio-scraper https://yourname.myportfolio.com -o portfolio-images
@@ -33,7 +34,7 @@ from bs4 import BeautifulSoup, Tag
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 
 USER_AGENT = (
     f"adobe-portfolio-scraper/{__version__} "
@@ -132,6 +133,24 @@ def slugify(text: str, max_length: int = 60) -> str:
 def path_slug(url: str) -> str:
     segment = urlparse(url).path.rstrip("/").rsplit("/", 1)[-1]
     return slugify(segment) or "home"
+
+
+# Characters Windows forbids in file and folder names, plus other control characters.
+_INVALID_NAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+
+
+def folder_name(text: str, max_length: int = 80) -> str:
+    """Turn a page title into a safe folder name, keeping its original wording:
+    "iSoap 1" -> "iSoap 1" (as opposed to slugify's "isoap-1")."""
+    text = _INVALID_NAME_CHARS.sub(" ", text)
+    text = re.sub(r"\s+", " ", text).strip().rstrip(". ")  # trailing dot/space is invalid on Windows
+    return text[:max_length].rstrip(". ") or "untitled"
+
+
+def titleize_slug(slug: str) -> str:
+    """Turn a URL slug into a readable name: "goh-fukugo" -> "Goh Fukugo"."""
+    words = re.split(r"[-_]+", slug.strip("-_"))
+    return " ".join(word.capitalize() for word in words if word) or "untitled"
 
 
 def human_size(size: float) -> str:
@@ -351,33 +370,43 @@ def crawl(
 # --------------------------------------------------------------------------- #
 
 
-def _unique(base: str, used: set[str]) -> str:
+def _unique(base: str, used: set[str], *, case_insensitive: bool = False) -> str:
+    key = (lambda s: s.casefold()) if case_insensitive else (lambda s: s)
     candidate, n = base, 1
-    while candidate in used:
+    while key(candidate) in used:
         n += 1
-        candidate = f"{base}-{n}"
-    used.add(candidate)
+        candidate = f"{base} ({n})" if case_insensitive else f"{base}-{n}"
+    used.add(key(candidate))
     return candidate
 
 
-def plan_downloads(pages: list[Page], output_dir: Path) -> list[Download]:
-    """Give every image a readable, unique filename such as ``lamp-study-03.jpg``."""
+def plan_downloads(pages: list[Page], output_dir: Path, *, flat: bool = False) -> list[Download]:
+    """Give every image a readable, unique path.
+
+    By default each project gets its own subfolder named after its page title,
+    e.g. ``iSoap 1/03.jpg`` — pass ``flat=True`` to save everything directly in
+    ``output_dir`` instead, e.g. ``isoap-1-03.jpg``.
+    """
+    used_folders: set[str] = set()
     used_prefixes: set[str] = set()
-    used_stems: set[str] = set()
     downloads: list[Download] = []
 
     for page in pages:
         prefix = _unique(slugify(page.title) or path_slug(page.url), used_prefixes)
+        folder = output_dir if flat else output_dir / _unique(
+            folder_name(page.title), used_folders, case_insensitive=True
+        )
+        used_stems: set[str] = set()  # unique per folder; flat mode shares one folder, so one set
         width = max(2, len(str(sum(image.kind != "cover" for image in page.images))))
         number = 0
         for image in page.images:
             if image.kind == "cover":
-                stem = f"{image.name_hint or prefix}-cover"
+                stem = f"{image.name_hint or prefix}-cover" if flat else "cover"
             else:
                 number += 1
-                stem = f"{prefix}-{number:0{width}d}"
+                stem = f"{prefix}-{number:0{width}d}" if flat else f"{number:0{width}d}"
             stem = _unique(stem, used_stems)
-            downloads.append(Download(image, page, output_dir / f"{stem}.{image.ext}"))
+            downloads.append(Download(image, page, folder / f"{stem}.{image.ext}"))
     return downloads
 
 
@@ -395,6 +424,7 @@ def fetch_file(url: str, dest: Path, timeout: float) -> int:
     """Stream ``url`` into ``dest`` through a temporary file; return the byte count."""
     partial = dest.with_name(dest.name + ".part")
     try:
+        dest.parent.mkdir(parents=True, exist_ok=True)
         with _thread_session().get(url, stream=True, timeout=timeout) as response:
             response.raise_for_status()
             content_type = response.headers.get("Content-Type", "")
@@ -417,6 +447,7 @@ def fetch_file(url: str, dest: Path, timeout: float) -> int:
 
 def download_all(
     downloads: list[Download],
+    output_dir: Path,
     *,
     workers: int = 4,
     overwrite: bool = False,
@@ -440,7 +471,8 @@ def download_all(
         futures = {pool.submit(fetch_file, d.image.url, d.path, timeout): d for d in pending}
         for done, future in enumerate(as_completed(futures), start=1):
             item = futures[future]
-            label = f"  [{done:>{width}}/{len(pending)}] {item.path.name}"
+            rel = item.path.relative_to(output_dir).as_posix()
+            label = f"  [{done:>{width}}/{len(pending)}] {rel}"
             try:
                 size = future.result()
             except Exception as exc:
@@ -457,13 +489,13 @@ def download_all(
     return stats
 
 
-def write_manifest(path: Path, downloads: list[Download], stats: DownloadStats) -> None:
+def write_manifest(path: Path, downloads: list[Download], stats: DownloadStats, output_dir: Path) -> None:
     with path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
         writer.writerow(["file", "status", "kind", "page_title", "page_url", "image_url", "asset_id"])
         for item in downloads:
             writer.writerow([
-                item.path.name,
+                item.path.relative_to(output_dir).as_posix(),
                 stats.status.get(item.path, ""),
                 item.image.kind,
                 item.page.title,
@@ -502,12 +534,16 @@ def _positive_float(value: str) -> float:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="adobe-portfolio-scraper",
-        description="Download full-resolution project images from an Adobe Portfolio website into one folder.",
+        description="Download full-resolution project images from an Adobe Portfolio website, "
+                    "sorted into a folder per project.",
         epilog="Only use this on portfolios you own or have permission to download. See TERMS_OF_USE.md.",
     )
     parser.add_argument("url", help="home page of the portfolio, e.g. https://yourname.myportfolio.com")
     parser.add_argument("-o", "--output", default="portfolio-images", metavar="DIR",
                         help="folder to save images into (default: %(default)s)")
+    parser.add_argument("--flat", action="store_true",
+                        help="save all images directly in the output folder instead of "
+                             "grouping them into a subfolder per project")
     parser.add_argument("--include-covers", action="store_true",
                         help="also save the cropped project cover thumbnails")
     parser.add_argument("--dry-run", action="store_true",
@@ -552,7 +588,7 @@ def main(argv: list[str] | None = None) -> int:
             timeout=args.timeout,
             max_pages=args.max_pages,
         )
-        downloads = plan_downloads(pages, output_dir)
+        downloads = plan_downloads(pages, output_dir, flat=args.flat)
         if not downloads:
             print("\nNo project images found. Check that this is an Adobe Portfolio site "
                   "and that its projects are public (not password-protected).")
@@ -561,14 +597,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\nFound {len(downloads)} images on {len(pages)} pages.")
         if args.dry_run:
             for item in downloads:
-                print(f"  {item.path.name:<44} from {urlparse(item.page.url).path}")
+                rel = item.path.relative_to(output_dir).as_posix()
+                print(f"  {rel:<44} from {urlparse(item.page.url).path}")
             return 0
 
         output_dir.mkdir(parents=True, exist_ok=True)
         print(f"Saving to {output_dir.resolve()}\n")
-        stats = download_all(downloads, workers=args.workers, overwrite=args.overwrite, timeout=args.timeout)
+        stats = download_all(downloads, output_dir, workers=args.workers, overwrite=args.overwrite, timeout=args.timeout)
         if args.manifest:
-            write_manifest(output_dir / "manifest.csv", downloads, stats)
+            write_manifest(output_dir / "manifest.csv", downloads, stats, output_dir)
     except KeyboardInterrupt:
         print("\nInterrupted.", file=sys.stderr)
         return 130
